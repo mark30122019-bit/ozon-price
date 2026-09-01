@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.env import is_dry_run
-from app.firestore_service import fetch_global_settings, fetch_product_targets, write_audit_log
-from app.models import AuditLogEntry, PipelineResult
+from app.firestore_service import fetch_catalog_targets, fetch_global_settings, write_audit_log
+from app.models import AuditLogEntry, GlobalSettings, PipelineResult
 from app.ozon_client import OzonClient
 from app.prices_service import extract_task_ids, fetch_all_product_prices, import_prices
 from app.pricing import build_price_updates
@@ -19,19 +19,22 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _should_dry_run(settings: GlobalSettings) -> bool:
+    """DRY_RUN из env имеет приоритет над settings.dryRun (для локальной отладки)."""
+    return is_dry_run() or settings.dry_run
+
+
 def _write_audit(
-    status: str,
+    level: str,
     message: str,
-    updated_count: int = 0,
-    task_ids: Optional[list[str]] = None,
+    details: Optional[dict] = None,
 ) -> None:
     write_audit_log(
         AuditLogEntry(
-            status=status,
+            level=level,
             message=message,
-            updated_count=updated_count,
-            task_ids=task_ids or [],
             timestamp_iso=_utc_now_iso(),
+            details=json.dumps(details, ensure_ascii=False) if details else None,
         )
     )
 
@@ -40,20 +43,16 @@ def run_price_adjustment() -> PipelineResult:
     logger.info("Старт корректировки цен Ozon")
 
     settings = fetch_global_settings()
-    if not settings.is_active:
+    if not settings.auto_script_enabled:
         logger.info(DISABLED_MESSAGE)
-        _write_audit(status="disabled", message=DISABLED_MESSAGE)
-        return PipelineResult(
-            body=DISABLED_MESSAGE,
-            status="disabled",
-            skipped_firestore=False,
-        )
+        _write_audit(level="info", message=DISABLED_MESSAGE)
+        return PipelineResult(body=DISABLED_MESSAGE, status="disabled")
 
-    product_targets = fetch_product_targets()
-    if not product_targets:
-        body = "В Firestore нет товаров с target_price, обновление не выполнялось"
+    catalog_targets = fetch_catalog_targets()
+    if not catalog_targets:
+        body = "В Firestore catalog нет активных товаров с targetPrice"
         logger.warning(body)
-        _write_audit(status="noop", message=body)
+        _write_audit(level="warning", message=body)
         return PipelineResult(body=body, status="noop")
 
     client = OzonClient.from_env()
@@ -62,25 +61,29 @@ def run_price_adjustment() -> PipelineResult:
     if not items:
         body = "Товары не найдены в Ozon, обновление не выполнялось"
         logger.info(body)
-        _write_audit(status="noop", message=body)
+        _write_audit(level="info", message=body)
         return PipelineResult(body=body, status="noop")
 
     updates = build_price_updates(
         items,
-        product_targets=product_targets,
-        markup_percent=settings.site_price_markup_percent,
+        product_targets=catalog_targets,
+        markup_percent=settings.markup_percent,
     )
     if not updates:
         body = "Цены проверены, обновлений не требуется"
         logger.info(body)
-        _write_audit(status="noop", message=body)
+        _write_audit(level="info", message=body)
         return PipelineResult(body=body, status="noop")
 
-    if is_dry_run():
+    if _should_dry_run(settings):
         body = f"DRY_RUN: обновления не отправлены ({len(updates)} товаров рассчитано)"
         logger.info(body)
         logger.info("Планируемые обновления: %s", json.dumps(updates, ensure_ascii=False))
-        _write_audit(status="dry_run", message=body, updated_count=len(updates))
+        _write_audit(
+            level="info",
+            message=body,
+            details={"updated_count": len(updates), "updates": updates},
+        )
         return PipelineResult(
             body=body,
             status="dry_run",
@@ -93,10 +96,9 @@ def run_price_adjustment() -> PipelineResult:
     body = f"Цены успешно проверены и обновлены ({len(updates)} товаров)"
     logger.info(body)
     _write_audit(
-        status="success",
+        level="success",
         message=body,
-        updated_count=len(updates),
-        task_ids=task_ids,
+        details={"updated_count": len(updates), "task_ids": task_ids},
     )
     return PipelineResult(
         body=body,

@@ -128,7 +128,7 @@ class TestBuildPriceUpdates(unittest.TestCase):
 
         self.assertEqual(updates, [{"offer_id": "SKU-001", "price": "1860"}])
 
-    def test_skips_items_not_in_firebase(self):
+    def test_skips_items_not_in_catalog(self):
         items = [
             {
                 "offer_id": "SKU-UNKNOWN",

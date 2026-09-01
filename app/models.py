@@ -1,12 +1,15 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
 
 
 @dataclass(frozen=True)
 class GlobalSettings:
-    is_active: bool
-    site_price_markup_percent: Decimal = Decimal("5")
+    """Схема settings/global из ozon-price-react-native."""
+
+    auto_script_enabled: bool
+    target_market_price: Decimal = Decimal("1500")
+    markup_percent: Decimal = Decimal("5")
+    dry_run: bool = False
 
 
 @dataclass(frozen=True)
@@ -15,13 +18,13 @@ class PipelineResult:
     status: str
     updated_count: int = 0
     task_ids: list[str] = field(default_factory=list)
-    skipped_firestore: bool = False
 
 
 @dataclass(frozen=True)
 class AuditLogEntry:
-    status: str
+    """Схема audit_logs из ozon-price-react-native."""
+
+    level: str
     message: str
-    updated_count: int
-    task_ids: list[str]
     timestamp_iso: str
+    details: str | None = None

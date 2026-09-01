@@ -3,7 +3,7 @@ import unittest
 from decimal import Decimal
 from unittest import mock
 
-from app.firestore_service import fetch_global_settings, fetch_product_targets
+from app.firestore_service import fetch_catalog_targets, fetch_global_settings
 from app.models import GlobalSettings
 
 
@@ -53,14 +53,19 @@ class _FakeFirestoreClient:
 
 
 class TestFirestoreService(unittest.TestCase):
-    def test_fetch_global_settings_active(self):
+    def test_fetch_global_settings_matches_react_native_schema(self):
         db = _FakeFirestoreClient(
             {
                 "settings": _FakeCollection(
                     {
                         "global": _FakeSnapshot(
                             "global",
-                            {"is_active": True, "site_price_markup_percent": 7},
+                            {
+                                "autoScriptEnabled": True,
+                                "targetMarketPrice": 1500,
+                                "markupPercent": 7,
+                                "dryRun": True,
+                            },
                         )
                     }
                 )
@@ -69,31 +74,39 @@ class TestFirestoreService(unittest.TestCase):
 
         settings = fetch_global_settings(db=db)
 
-        self.assertTrue(settings.is_active)
-        self.assertEqual(settings.site_price_markup_percent, Decimal("7"))
+        self.assertTrue(settings.auto_script_enabled)
+        self.assertEqual(settings.target_market_price, Decimal("1500"))
+        self.assertEqual(settings.markup_percent, Decimal("7"))
+        self.assertTrue(settings.dry_run)
 
     def test_fetch_global_settings_missing_document(self):
         db = _FakeFirestoreClient({"settings": _FakeCollection({})})
         settings = fetch_global_settings(db=db)
-        self.assertFalse(settings.is_active)
+        self.assertFalse(settings.auto_script_enabled)
 
-    def test_fetch_product_targets(self):
+    def test_fetch_catalog_targets_matches_react_native_schema(self):
         db = _FakeFirestoreClient(
             {
-                "products": _FakeCollection(
+                "catalog": _FakeCollection(
                     [
-                        _FakeSnapshot("SKU-001", {"target_price": 1500}),
-                        _FakeSnapshot("SKU-002", {"offer_id": "SKU-002", "target_price": 2000}),
-                        _FakeSnapshot("broken", {}),
+                        _FakeSnapshot(
+                            "SKU-001",
+                            {"offerId": "SKU-001", "targetPrice": 1500, "isActive": True},
+                        ),
+                        _FakeSnapshot(
+                            "SKU-002",
+                            {"offerId": "SKU-002", "targetPrice": 2000, "isActive": False},
+                        ),
+                        _FakeSnapshot("broken", {"offerId": "broken", "isActive": True}),
                     ]
                 )
             }
         )
 
-        targets = fetch_product_targets(db=db)
+        targets = fetch_catalog_targets(db=db)
 
         self.assertEqual(targets["SKU-001"], Decimal("1500"))
-        self.assertEqual(targets["SKU-002"], Decimal("2000"))
+        self.assertNotIn("SKU-002", targets)
         self.assertNotIn("broken", targets)
 
 

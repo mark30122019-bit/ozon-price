@@ -79,7 +79,7 @@ def build_price_updates(
         target_price = product_targets.get(str(offer_id))
         if target_price is None:
             logger.warning(
-                "Пропуск товара offer_id=%s (product_id=%s): нет в Firebase products",
+                "Пропуск товара offer_id=%s (product_id=%s): нет в Firestore catalog",
                 offer_id,
                 product_id,
             )
