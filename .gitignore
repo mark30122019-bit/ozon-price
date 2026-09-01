@@ -1,6 +1,9 @@
 # Локальные секреты (не загружать в Yandex Cloud)
 .env
 
+# Архив для деплоя
+deploy.zip
+
 # Python
 __pycache__/
 *.py[cod]

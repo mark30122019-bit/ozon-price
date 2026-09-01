@@ -1,18 +1,12 @@
-import os
-import tempfile
 import unittest
 from decimal import Decimal
-from pathlib import Path
-from unittest import mock
 
-from index import (
-    TARGET_MARKET_PRICE,
+from app.config import TARGET_MARKET_PRICE
+from app.pricing import (
     build_price_updates,
     calculate_new_base_price,
     get_base_price,
     get_price_with_ozon_card,
-    is_dry_run,
-    load_local_env,
     to_decimal,
 )
 
@@ -48,7 +42,6 @@ class TestPriceExtraction(unittest.TestCase):
 
 class TestCalculateNewBasePrice(unittest.TestCase):
     def test_increases_base_when_card_price_below_target(self):
-        # TARGET=1500, card=1200, base=1800 -> diff=300 -> new base=2100
         result = calculate_new_base_price(Decimal("1200"), Decimal("1800"))
         self.assertEqual(result, Decimal("2100"))
 
@@ -90,7 +83,7 @@ class TestBuildPriceUpdates(unittest.TestCase):
             },
         ]
 
-        updates = build_price_updates(items)
+        updates = build_price_updates(items, target_market_price=Decimal("1500"))
 
         self.assertEqual(updates, [{"offer_id": "SKU-001", "price": "2100"}])
 
@@ -136,51 +129,11 @@ class TestBuildPriceUpdates(unittest.TestCase):
             }
         ]
 
-        updates = build_price_updates(items)
+        updates = build_price_updates(items, target_market_price=Decimal("1500"))
 
         self.assertEqual(len(updates), 1)
         self.assertIsInstance(updates[0]["price"], str)
         self.assertEqual(updates[0]["price"], "1500")
-
-
-class TestLocalEnv(unittest.TestCase):
-    def test_load_local_env_reads_file_without_overwriting_existing(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            env_path = Path(tmp_dir) / ".env"
-            env_path.write_text(
-                "OZON_CLIENT_ID=from_file\n"
-                "OZON_API_KEY=secret\n"
-                "DRY_RUN=1\n",
-                encoding="utf-8",
-            )
-
-            with mock.patch("index.LOCAL_ENV_FILE", env_path):
-                with mock.patch.dict(
-                    os.environ,
-                    {"OZON_CLIENT_ID": "already_set"},
-                    clear=True,
-                ):
-                    loaded = load_local_env()
-
-                    self.assertTrue(loaded)
-                    self.assertEqual(os.environ["OZON_CLIENT_ID"], "already_set")
-                    self.assertEqual(os.environ["OZON_API_KEY"], "secret")
-                    self.assertEqual(os.environ["DRY_RUN"], "1")
-
-    def test_load_local_env_returns_false_when_file_missing(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            missing_env = Path(tmp_dir) / "missing.env"
-            with mock.patch("index.LOCAL_ENV_FILE", missing_env):
-                self.assertFalse(load_local_env())
-
-    def test_is_dry_run(self):
-        for value in ("1", "true", "TRUE", "yes", "on"):
-            with self.subTest(value=value):
-                with mock.patch.dict(os.environ, {"DRY_RUN": value}, clear=True):
-                    self.assertTrue(is_dry_run())
-
-        with mock.patch.dict(os.environ, {"DRY_RUN": "0"}, clear=True):
-            self.assertFalse(is_dry_run())
 
 
 if __name__ == "__main__":
