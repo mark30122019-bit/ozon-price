@@ -2,7 +2,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from app.config import get_target_market_price
+from app.config import get_site_price_markup_percent, get_target_market_price
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +27,30 @@ def get_base_price(item: dict[str, Any]) -> Optional[Decimal]:
     return to_decimal(price_block.get("price"))
 
 
+def calculate_desired_site_price(
+    price_with_ozon_card: Decimal,
+    markup_percent: Optional[Decimal] = None,
+) -> Decimal:
+    """Целевая витринная цена: текущая цена на сайте + наценка (по умолчанию 5%)."""
+    if markup_percent is None:
+        markup_percent = get_site_price_markup_percent()
+
+    multiplier = Decimal("1") + markup_percent / Decimal("100")
+    return (price_with_ozon_card * multiplier).quantize(Decimal("1"))
+
+
 def calculate_new_base_price(
     price_with_ozon_card: Decimal,
     current_base_price: Decimal,
     target_market_price: Optional[Decimal] = None,
+    markup_percent: Optional[Decimal] = None,
 ) -> Optional[Decimal]:
     """
     Формула пересчёта базовой цены.
 
-    Если цена с Ozon Картой ниже желаемой рыночной цены,
-    увеличиваем базовую цену на разницу.
+    Если цена с Ozon Картой ниже желаемого порога (TARGET_MARKET_PRICE),
+    поднимаем базовую цену так, чтобы витринная цена выросла на заданный
+    процент от текущей цены на сайте (по умолчанию +5%).
     """
     if target_market_price is None:
         target_market_price = get_target_market_price()
@@ -44,7 +58,11 @@ def calculate_new_base_price(
     if price_with_ozon_card >= target_market_price:
         return None
 
-    difference = target_market_price - price_with_ozon_card
+    desired_site_price = calculate_desired_site_price(
+        price_with_ozon_card,
+        markup_percent=markup_percent,
+    )
+    difference = desired_site_price - price_with_ozon_card
     new_price = current_base_price + difference
     return new_price.quantize(Decimal("1"))
 
@@ -52,9 +70,12 @@ def calculate_new_base_price(
 def build_price_updates(
     items: list[dict[str, Any]],
     target_market_price: Optional[Decimal] = None,
+    markup_percent: Optional[Decimal] = None,
 ) -> list[dict[str, str]]:
     if target_market_price is None:
         target_market_price = get_target_market_price()
+    if markup_percent is None:
+        markup_percent = get_site_price_markup_percent()
 
     updates: list[dict[str, str]] = []
 
@@ -89,6 +110,7 @@ def build_price_updates(
             price_with_ozon_card,
             current_base_price,
             target_market_price=target_market_price,
+            markup_percent=markup_percent,
         )
         if new_price is None:
             logger.info(
@@ -102,11 +124,17 @@ def build_price_updates(
         if new_price == current_base_price.quantize(Decimal("1")):
             continue
 
+        desired_site_price = calculate_desired_site_price(
+            price_with_ozon_card,
+            markup_percent=markup_percent,
+        )
         logger.info(
-            "Товар offer_id=%s: карта=%s, база=%s -> новая база=%s",
+            "Товар offer_id=%s: карта=%s, база=%s -> цель на сайте=%s (+%s%%) -> новая база=%s",
             offer_id,
             price_with_ozon_card,
             current_base_price,
+            desired_site_price,
+            markup_percent,
             new_price,
         )
         updates.append({"offer_id": offer_id, "price": str(int(new_price))})
