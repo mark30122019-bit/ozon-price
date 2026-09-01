@@ -70,3 +70,18 @@ def import_prices(client: OzonClient, updates: list[dict[str, str]]) -> list[dic
             logger.info("task_id: %s", task_id)
 
     return responses
+
+
+def extract_task_ids(responses: list[dict[str, Any]]) -> list[str]:
+    task_ids: list[str] = []
+
+    for data in responses:
+        task_id = (
+            data.get("result", {}).get("task_id")
+            if isinstance(data.get("result"), dict)
+            else data.get("task_id")
+        )
+        if task_id is not None:
+            task_ids.append(str(task_id))
+
+    return task_ids

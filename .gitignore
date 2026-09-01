@@ -1,5 +1,6 @@
 # Локальные секреты (не загружать в Yandex Cloud)
 .env
+firebase-service-account.json
 
 # Архив для деплоя
 deploy.zip
